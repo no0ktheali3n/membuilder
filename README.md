@@ -40,10 +40,12 @@ membuilder/
 ├── uv.lock
 ├── .env                          # API keys, config (gitignored)
 ├── .gitignore
+├── .python-version               # Python 3.12
+├── CHANGELOG.md
 ├── README.md
 │
 ├── membuilder/                   # Main package
-│   ├── __init__.py
+│   ├── __init__.py               # Exposes __version__
 │   ├── config.py                 # Settings, env vars, constants
 │   │
 │   ├── crawler/
@@ -54,37 +56,41 @@ membuilder/
 │   │
 │   ├── parser/
 │   │   ├── __init__.py
-│   │   ├── chunker.py            # MarkdownNodeParser, heading hierarchy
-│   │   └── metadata.py           # Breadcrumb and metadata enrichment
+│   │   ├── chunker.py            # MarkdownNodeParser, heading hierarchy, content cleaning
+│   │   ├── metadata.py           # URL-to-breadcrumb derivation
+│   │   └── models.py             # Chunk dataclass
 │   │
 │   ├── index/
 │   │   ├── __init__.py
-│   │   ├── embedder.py           # Embedding pipeline
-│   │   └── store.py              # ChromaDB interface
+│   │   ├── embedder.py           # Embedding pipeline (planned)
+│   │   └── store.py              # ChromaDB interface (planned)
 │   │
 │   ├── query/
 │   │   ├── __init__.py
-│   │   └── engine.py             # LlamaIndex query engine + LiteLLM
+│   │   └── engine.py             # LlamaIndex query engine + LiteLLM (planned)
 │   │
 │   └── api/
 │       ├── __init__.py
-│       └── main.py               # FastAPI app
+│       └── main.py               # FastAPI app (planned)
 │
 ├── ui/
-│   └── app.py                    # Streamlit prototype (Next.js planned for v1)
+│   └── app.py                    # Streamlit prototype (planned)
 │
 ├── data/                         # Gitignored
 │   ├── checkpoints/              # Per-crawl JSONL checkpoint files
-│   └── chroma/                   # Persistent ChromaDB on disk
+│   ├── chunks/                   # Per-crawl JSONL chunk files
+│   └── chroma/                   # Persistent ChromaDB on disk (planned)
 │
 ├── evals/
-│   └── k8s_questions.json        # Retrieval eval question set
+│   └── k8s_questions.json        # Retrieval eval question set (planned)
 │
 └── scripts/
     ├── crawl.py                  # CLI: crawl a documentation site
-    ├── index.py                  # CLI: embed + load into ChromaDB
-    ├── query.py                  # CLI: quick query test
+    ├── parse.py                  # CLI: parse checkpoint into chunks
+    ├── index.py                  # CLI: embed + load into ChromaDB (planned)
+    ├── query.py                  # CLI: quick query test (planned)
     ├── inspect_checkpoint.py     # CLI: validate and inspect crawl output
+    ├── inspect_chunks.py         # CLI: validate and inspect chunk output
     ├── patch_titles.py           # CLI: post-hoc title extraction fix
     └── debug_title.py            # CLI: one-page crawl for debugging metadata
 ```
@@ -110,7 +116,7 @@ membuilder/
 
 ```bash
 # Install dependencies
-uv add crawl4ai python-dotenv pydantic rich
+uv add crawl4ai python-dotenv pydantic rich llama-index-core
 
 # First-time browser setup (downloads Chromium for crawl4ai)
 uv run crawl4ai-setup
@@ -194,7 +200,48 @@ Rewrites titles by extracting the first H1/H2 heading from each page's markdown.
 
 ---
 
-### 4. Debug metadata (development)
+### 3. Parse checkpoint into chunks
+
+Reads the checkpoint, filters low-quality pages, splits each page's markdown into heading-aware chunks, enriches with metadata, and saves to JSONL.
+
+```bash
+uv run python scripts/parse.py
+```
+
+**Options:**
+
+| Flag | Default | Description |
+|---|---|---|
+| `--checkpoint-dir` | `data/checkpoints` | Checkpoint input directory |
+| `--output-dir` | `data/chunks` | Chunk output directory |
+
+**Output:** `data/chunks/<run_id>_chunks.jsonl` — one chunk per line with full metadata.
+
+---
+
+### 4. Inspect and validate chunk output
+
+Analyses the chunk file and flags anomalies before proceeding to the embedder.
+
+```bash
+uv run python scripts/inspect_chunks.py
+```
+
+**Output includes:**
+- Total chunk count and size distribution
+- Chunks per page (min, max, avg)
+- Top 5 pages by chunk count
+- Section distribution with visual bar chart
+- Anomaly report:
+  - `[1]` Tiny chunks (< 100 chars) — heading stubs with no body
+  - `[2]` Large chunks (> 8,000 chars) — may affect embedding quality
+  - `[3]` Missing headings — intro paragraphs before first heading
+- Sample of first 3 chunks with full metadata
+- Verdict
+
+---
+
+### 5. Debug metadata (development)
 
 Fetches a single page and dumps the raw crawl4ai result for inspection. Useful when diagnosing title extraction, CSS selector issues, or metadata availability.
 
@@ -203,6 +250,20 @@ uv run python scripts/debug_title.py
 ```
 
 Edit the URL inside the script to target a specific page.
+
+---
+
+## Parser Design Notes
+
+**Heading-aware chunking:** LlamaIndex `MarkdownNodeParser` splits on `#`, `##`, and `###` headings, preserving the document hierarchy. Each chunk inherits the heading above it, making retrieval context-aware — a query about "pod lifecycle" returns the specific section, not a 60k page blob.
+
+**Content cleaning:** K8s docs appends anchor links to every heading (`## Heading[ ](url)`). These are stripped from content before chunking to prevent noise in embeddings.
+
+**Minimum chunk length:** Chunks below 100 chars are discarded — these are heading stubs with no body content that would degrade retrieval quality.
+
+**Secondary splitting:** Chunks exceeding 6,000 chars are split further on paragraph boundaries. Dense reference pages (API specs, metrics tables) that don't split cleanly on headings are handled this way. Chunks that can't be split by paragraph (flat tables) are left as-is — at 0.5% of total they're acceptable.
+
+**Breadcrumb derivation:** Built from the URL path by stripping the docs root segment and humanising slugs. `kubernetes.io/docs/concepts/workloads/pods/` → `["Concepts", "Workloads", "Pods"]`. Used for navigation context in the query layer.
 
 ---
 
@@ -227,9 +288,10 @@ Edit the URL inside the script to target a specific page.
 | Crawler | ✅ Complete |
 | Checkpoint / Resume | ✅ Complete |
 | Data validation tooling | ✅ Complete |
-| Parser / Chunker | 🔄 Next |
-| Metadata enrichment | 🔄 Next |
-| Embedding + ChromaDB | ⏳ Planned |
+| Parser / Chunker | ✅ Complete |
+| Metadata enrichment (breadcrumb) | ✅ Complete |
+| Chunk validation tooling | ✅ Complete |
+| Embedding + ChromaDB | 🔄 Next |
 | Query engine | ⏳ Planned |
 | FastAPI backend | ⏳ Planned |
 | Streamlit UI | ⏳ Planned |
@@ -240,6 +302,7 @@ Edit the URL inside the script to target a specific page.
 
 Reference run against `https://kubernetes.io/docs/` (February 2026):
 
+**Crawl (v0.1.0):**
 ```
 Total pages  : 798
 OK           : 798
@@ -253,4 +316,27 @@ Size distribution:
 
 Critical issues : 3  (1 very large page, 2 non-HTML feeds)
 Warnings        : 45 (empty section indexes, dense reference pages)
+```
+
+**Parse (v0.2.0):**
+```
+Total chunks : 9,783
+Pages indexed: 773 (25 skipped — empty/near-empty)
+Pages skipped: 25
+
+Size distribution:
+  Min    : 100 chars
+  Max    : 61,944 chars
+  Avg    : 1,024 chars
+  Median : 614 chars
+
+Section distribution:
+  Reference  : 4,100 chunks
+  Concepts   : 2,376 chunks
+  Tasks      : 2,292 chunks
+  Contribute :   374 chunks
+  Tutorials  :   335 chunks
+  Setup      :   284 chunks
+
+Flagged      : 52 chunks (0.5%) — oversized reference tables, acceptable
 ```
