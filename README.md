@@ -19,6 +19,8 @@ MarkdownNodeParser (heading-aware hierarchical chunks)
   ↓
 Metadata enrichment (url, breadcrumb, title, timestamp)
   ↓
+Embeddable protocol (id, text, metadata — model-agnostic)
+  ↓
 Embeddings (OpenAI / Ollama via LiteLLM)
   ↓
 ChromaDB (persistent, on disk)
@@ -42,6 +44,7 @@ membuilder/
 ├── .gitignore
 ├── .python-version               # Python 3.12
 ├── CHANGELOG.md
+├── PROJECT.md                    # Central source of truth — architecture, roadmap, ADRs
 ├── README.md
 │
 ├── membuilder/                   # Main package
@@ -58,16 +61,21 @@ membuilder/
 │   │   ├── __init__.py
 │   │   ├── chunker.py            # MarkdownNodeParser, heading hierarchy, content cleaning
 │   │   ├── metadata.py           # URL-to-breadcrumb derivation
-│   │   └── models.py             # Chunk dataclass
+│   │   └── models.py             # Chunk dataclass (implements Embeddable)
 │   │
 │   ├── index/
 │   │   ├── __init__.py
-│   │   ├── embedder.py           # Embedding pipeline (planned)
-│   │   └── store.py              # ChromaDB interface (planned)
+│   │   ├── protocol.py           # Embeddable protocol — id, text, metadata
+│   │   ├── embedder.py           # Batched embedding pipeline via LiteLLM
+│   │   └── store.py              # ChromaDB interface — collection-agnostic upsert
 │   │
 │   ├── query/
 │   │   ├── __init__.py
 │   │   └── engine.py             # LlamaIndex query engine + LiteLLM (planned)
+│   │
+│   ├── synthesizer/              # Planned v0.5.0
+│   │
+│   ├── vault/                    # Planned v0.6.0
 │   │
 │   └── api/
 │       ├── __init__.py
@@ -79,7 +87,7 @@ membuilder/
 ├── data/                         # Gitignored
 │   ├── checkpoints/              # Per-crawl JSONL checkpoint files
 │   ├── chunks/                   # Per-crawl JSONL chunk files
-│   └── chroma/                   # Persistent ChromaDB on disk (planned)
+│   └── chroma/                   # Persistent ChromaDB on disk
 │
 ├── evals/
 │   └── k8s_questions.json        # Retrieval eval question set (planned)
@@ -87,10 +95,11 @@ membuilder/
 └── scripts/
     ├── crawl.py                  # CLI: crawl a documentation site
     ├── parse.py                  # CLI: parse checkpoint into chunks
-    ├── index.py                  # CLI: embed + load into ChromaDB (planned)
+    ├── index.py                  # CLI: embed + load into ChromaDB
     ├── query.py                  # CLI: quick query test (planned)
     ├── inspect_checkpoint.py     # CLI: validate and inspect crawl output
     ├── inspect_chunks.py         # CLI: validate and inspect chunk output
+    ├── inspect_index.py          # CLI: validate index coverage + retrieval spot-check
     ├── patch_titles.py           # CLI: post-hoc title extraction fix
     └── debug_title.py            # CLI: one-page crawl for debugging metadata
 ```
@@ -116,7 +125,7 @@ membuilder/
 
 ```bash
 # Install dependencies
-uv add crawl4ai python-dotenv pydantic rich llama-index-core
+uv add crawl4ai python-dotenv pydantic rich llama-index-core litellm chromadb
 
 # First-time browser setup (downloads Chromium for crawl4ai)
 uv run crawl4ai-setup
@@ -126,6 +135,13 @@ Create a `.env` file in the project root:
 
 ```env
 OPENAI_API_KEY=your_key_here
+
+# Optional: override embedding model (default: text-embedding-3-small)
+# MEMBUILDER_EMBEDDING_MODEL=ollama/qwen3-embedding:4b
+# OLLAMA_API_BASE=http://localhost:11434
+
+# Optional: override synthesis model (default: claude-sonnet-4-6)
+# MEMBUILDER_SYNTHESIS_MODEL=ollama/qwen2.5-coder:14b
 ```
 
 ---
@@ -200,7 +216,7 @@ Rewrites titles by extracting the first H1/H2 heading from each page's markdown.
 
 ---
 
-### 3. Parse checkpoint into chunks
+### 4. Parse checkpoint into chunks
 
 Reads the checkpoint, filters low-quality pages, splits each page's markdown into heading-aware chunks, enriches with metadata, and saves to JSONL.
 
@@ -219,7 +235,7 @@ uv run python scripts/parse.py
 
 ---
 
-### 4. Inspect and validate chunk output
+### 5. Inspect and validate chunk output
 
 Analyses the chunk file and flags anomalies before proceeding to the embedder.
 
@@ -241,7 +257,49 @@ uv run python scripts/inspect_chunks.py
 
 ---
 
-### 5. Debug metadata (development)
+### 6. Embed and index chunks
+
+Embeds all chunks and upserts them into a persistent ChromaDB collection. Safe to re-run — existing records are updated, not duplicated.
+
+```bash
+# Estimate cost before committing (no API calls)
+uv run python scripts/index.py --dry-run
+
+# Full index run
+uv run python scripts/index.py
+```
+
+**Options:**
+
+| Flag | Default | Description |
+|---|---|---|
+| `--chunks-file` | auto-detected | Path to chunks JSONL |
+| `--chroma-dir` | `data/chroma` | ChromaDB persistence directory |
+| `--collection` | derived from chunks filename | Collection name |
+| `--dry-run` | false | Estimate tokens/cost, skip embedding |
+
+**Local Ollama:** Set `MEMBUILDER_EMBEDDING_MODEL=ollama/<model>` and `OLLAMA_API_BASE=http://localhost:11434` in `.env` to run embeddings locally at no cost. Stop any idle Ollama models before running to ensure GPU VRAM is available.
+
+---
+
+### 7. Inspect and validate index
+
+Validates embedding coverage and runs a retrieval spot-check against the collection.
+
+```bash
+uv run python scripts/inspect_index.py
+```
+
+**Output includes:**
+- Collection stats (record count, embedding model, distance function)
+- Sample IDs and metadata
+- Coverage report: indexed vs expected chunk count
+- 5-query retrieval spot-check with top-3 scored results and content previews
+- Verdict
+
+---
+
+### 8. Debug metadata (development)
 
 Fetches a single page and dumps the raw crawl4ai result for inspection. Useful when diagnosing title extraction, CSS selector issues, or metadata availability.
 
@@ -281,6 +339,18 @@ Edit the URL inside the script to target a specific page.
 
 ---
 
+## Indexer Design Notes
+
+**`Embeddable` protocol:** The ChromaDB store depends on `protocol.Embeddable` — not on `Chunk` directly. Any document type implementing `id: str`, `text: str`, `metadata: dict` flows through the same pipeline. This is the forward-compatibility contract for v0.7.0, when vault `AtomicNote` objects replace raw chunks as the indexer input.
+
+**Idempotent upsert:** Re-running `index.py` on the same chunk file is safe. ChromaDB upserts by `id` — existing records are updated, no duplicates created. This also makes the indexer resume-safe if interrupted mid-run.
+
+**Model configuration:** All model references come from env vars via `config.py`. Swapping from OpenAI to Ollama to an internal inference endpoint requires only env config changes — no code changes.
+
+**Local embedding:** Ollama models (e.g. `qwen3-embedding:4b`) are fully supported via LiteLLM's `ollama/` prefix. GPU acceleration requires available VRAM — stop idle Ollama models before a full index run.
+
+---
+
 ## Current Status
 
 | Stage | Status |
@@ -291,9 +361,14 @@ Edit the URL inside the script to target a specific page.
 | Parser / Chunker | ✅ Complete |
 | Metadata enrichment (breadcrumb) | ✅ Complete |
 | Chunk validation tooling | ✅ Complete |
-| Embedding + ChromaDB | 🔄 Next |
-| Query engine | ⏳ Planned |
+| Embeddable protocol | ✅ Complete |
+| Embedding pipeline (LiteLLM) | ✅ Complete |
+| ChromaDB store | ✅ Complete |
+| Index validation tooling | ✅ Complete |
+| Query engine | 🔄 Next |
 | FastAPI backend | ⏳ Planned |
+| Synthesizer (vault) | ⏳ Planned |
+| Vault writer (Obsidian) | ⏳ Planned |
 | Streamlit UI | ⏳ Planned |
 
 ---
@@ -339,4 +414,19 @@ Section distribution:
   Setup      :   284 chunks
 
 Flagged      : 52 chunks (0.5%) — oversized reference tables, acceptable
+```
+
+**Index (v0.3.0):**
+```
+Total records : 9,783
+Coverage      : 100.0%
+Embed model   : ollama/qwen3-embedding:4b (local)
+Distance fn   : cosine
+Truncated     : 8 items (32,000 char limit — oversized reference tables)
+Embed time    : 53 min (CPU-bound, one-time cost)
+ChromaDB write: 8.3s
+
+Retrieval spot-check (5 queries):
+  Score range : 0.77 – 0.84 cosine similarity
+  Verdict     : All queries returned semantically correct top results
 ```

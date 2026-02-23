@@ -6,6 +6,31 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.3.0] - 2026-02-23
+
+### Added
+- `membuilder/index/protocol.py` — `Embeddable` protocol (`id`, `text`, `metadata`) — the abstraction layer that decouples the ChromaDB store from any specific document type. Both `Chunk` (v0.3.0) and `AtomicNote` (v0.7.0) implement it.
+- `membuilder/index/embedder.py` — batched embedding pipeline via LiteLLM with exponential backoff retry, progress display, truncation safety (32k char limit), and cost estimation for known models
+- `membuilder/index/store.py` — ChromaDB interface with idempotent upsert (re-running on the same chunk file is safe), collection-agnostic design (depends on `Embeddable`, not `Chunk`)
+- `membuilder/config.py` — centralised settings with env var overrides: `MEMBUILDER_EMBEDDING_MODEL`, `MEMBUILDER_SYNTHESIS_MODEL`, `OLLAMA_API_BASE`. No hardcoded model names anywhere in the codebase.
+- `scripts/index.py` — CLI entry point: `--dry-run` flag for cost estimation without API calls, `--collection` and `--chroma-dir` overrides
+- `scripts/inspect_index.py` — index validation tooling: collection stats, 100% coverage check against source chunk file, 5-query retrieval spot-check with scored results and previews
+
+### Changed
+- `membuilder/__init__.py` — bumped `__version__` to `0.3.0`
+- `pyproject.toml` — bumped version to `0.3.0`, added `litellm`, `chromadb` dependencies
+- `membuilder/parser/models.py` — `Chunk` now implements `Embeddable` protocol
+
+### Data Quality (Kubernetes docs reference run)
+- 9,783 chunks embedded, 0 failures
+- 8 items truncated to 32,000 chars (oversized reference tables — expected)
+- 9,783 records upserted to ChromaDB in 8.3s
+- Retrieval spot-check: all 5 test queries returned semantically correct top results
+- Score range: 0.77–0.84 cosine similarity — healthy signal across concept, task, and tutorial content
+- Embed time: 53 min on CPU (local Ollama, qwen3-embedding:4b) — one-time cost, collection is persistent
+
+---
+
 ## [0.2.0] - 2026-02-23
 
 ### Added

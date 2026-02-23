@@ -1,11 +1,13 @@
 [project]
 name = "membuilder"
-version = "0.1.0"
+version = "0.3.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "chromadb>=0.6.0",
     "crawl4ai>=0.8.0",
+    "litellm>=1.65.0",
     "llama-index-core>=0.14.15",
     "pydantic>=2.12.5",
     "python-dotenv>=1.2.1",
