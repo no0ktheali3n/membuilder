@@ -23,3 +23,4 @@ wheels/
 .DS_Store
 *.log
 .coverage
+.claude
