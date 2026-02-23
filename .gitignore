@@ -1,0 +1,25 @@
+# Environment Variables
+.env
+
+# Folders
+data/
+exp/
+htmlcov/
+
+# Python-generated files
+__pycache__/
+*.py[oc]
+.pytest_cache/
+.python-version
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Other
+.DS_Store
+*.log
+.coverage
