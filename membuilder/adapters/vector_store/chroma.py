@@ -11,6 +11,12 @@ Score normalization (v0.3.1):
     This adapter converts it to cosine *similarity* via `1 - distance`,
     giving a score in [-1, 1] where higher = more similar. This makes
     SearchResult.score direction consistent with MilvusVectorStore.
+
+Metadata serialization (v0.3.1 rev):
+    Chunk.metadata carries list[str] values for breadcrumb and tags.
+    ChromaDB requires all metadata values to be scalar (str/int/float/bool).
+    _serialize_metadata() flattens lists to comma-joined strings immediately
+    before the upsert call — the Chunk itself is never mutated.
 """
 
 from __future__ import annotations
@@ -22,6 +28,39 @@ from membuilder.protocols import (
     Chunk,
 )
 from membuilder.index.store import VectorStore as _ChromaStore
+
+
+def _serialize_metadata(metadata: dict) -> dict:
+    """
+    Flatten list values to comma-joined strings for ChromaDB compatibility.
+
+    ChromaDB requires all metadata values to be scalar (str, int, float, bool).
+    breadcrumb and tags are list[str] at the protocol level; this function
+    converts them to strings only for storage. The Chunk itself is unchanged.
+    """
+    out = {}
+    for k, v in metadata.items():
+        if isinstance(v, list):
+            out[k] = ",".join(str(s) for s in v)
+        else:
+            out[k] = v
+    return out
+
+
+class _StorageChunk:
+    """
+    Thin proxy that presents serialized (scalar-only) metadata to the ChromaDB
+    store while keeping the canonical Chunk's id and text intact.
+
+    This lets us reuse the existing VectorStore.upsert() batching logic without
+    mutating the Chunk or duplicating the upsert implementation.
+    """
+    __slots__ = ("id", "text", "metadata")
+
+    def __init__(self, chunk: Chunk) -> None:
+        self.id = chunk.id
+        self.text = chunk.text
+        self.metadata = _serialize_metadata(chunk.metadata)
 
 
 class ChromaVectorStore:
@@ -58,10 +97,12 @@ class ChromaVectorStore:
         Upsert embedded chunks into the collection.
 
         ChromaDB upsert is idempotent — same ID overwrites, no duplicates.
+        List metadata values (breadcrumb, tags) are serialized to strings
+        via _StorageChunk before being passed to ChromaDB.
         Because ChromaDB doesn't distinguish inserts from updates in its
         return value, inserted=total and updated=0 is an approximation.
         """
-        items = [ec.chunk for ec in chunks]
+        items = [_StorageChunk(ec.chunk) for ec in chunks]
         embeddings = [ec.embedding for ec in chunks]
         total = self._store.upsert(self._collection, items, embeddings)
         return UpsertResult(inserted=total, updated=0, errors=0)

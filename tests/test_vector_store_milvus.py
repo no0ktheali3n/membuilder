@@ -33,7 +33,15 @@ def sample_chunks():
             chunk=Chunk(
                 id="chunk_001",
                 text="Pods are the smallest deployable units in Kubernetes.",
-                metadata={"url": "https://kubernetes.io/docs/concepts/workloads/pods/", "chunk_index": 0},
+                metadata={
+                    "url": "https://kubernetes.io/docs/concepts/workloads/pods/",
+                    "chunk_index": 0,
+                    "breadcrumb": ["Concepts", "Workloads"],  # list[str]
+                    "tags": ["concepts", "workloads"],        # list[str]
+                    "domain": "kubernetes",
+                    "crawled_at": "2026-02-24T00:00:00+00:00",
+                    "heading": "Pods",
+                },
             ),
             embedding=[0.1, 0.2, 0.3],
         ),
@@ -41,7 +49,15 @@ def sample_chunks():
             chunk=Chunk(
                 id="chunk_002",
                 text="A Deployment provides declarative updates for Pods.",
-                metadata={"url": "https://kubernetes.io/docs/concepts/workloads/deployments/", "chunk_index": 0},
+                metadata={
+                    "url": "https://kubernetes.io/docs/concepts/workloads/deployments/",
+                    "chunk_index": 0,
+                    "breadcrumb": ["Concepts", "Workloads"],
+                    "tags": ["concepts", "workloads"],
+                    "domain": "kubernetes",
+                    "crawled_at": "2026-02-24T00:00:00+00:00",
+                    "heading": "Deployments",
+                },
             ),
             embedding=[0.4, 0.5, 0.6],
         ),
@@ -49,7 +65,15 @@ def sample_chunks():
             chunk=Chunk(
                 id="chunk_003",
                 text="Services expose Pods as a network service.",
-                metadata={"url": "https://kubernetes.io/docs/concepts/services-networking/service/", "chunk_index": 0},
+                metadata={
+                    "url": "https://kubernetes.io/docs/concepts/services-networking/service/",
+                    "chunk_index": 0,
+                    "breadcrumb": ["Concepts", "Services"],
+                    "tags": ["concepts", "services"],
+                    "domain": "kubernetes",
+                    "crawled_at": "2026-02-24T00:00:00+00:00",
+                    "heading": "Services",
+                },
             ),
             embedding=[0.7, 0.8, 0.9],
         ),

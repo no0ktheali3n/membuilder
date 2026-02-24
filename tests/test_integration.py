@@ -205,12 +205,31 @@ def test_chunk_metadata_has_all_required_keys(config_file):
         crawled_at="2026-02-24T00:00:00+00:00",
     )
 
+    from datetime import datetime
+
     required_keys = {"url", "breadcrumb", "chunk_index", "domain", "crawled_at", "tags", "heading"}
     chunks = chunker.chunk(page)
     assert chunks, "Expected at least one chunk from page"
     for c in chunks:
         missing = required_keys - set(c.metadata.keys())
         assert not missing, f"Chunk missing required metadata keys: {missing}"
+
+        # Type assertions (rev review)
+        assert isinstance(c.metadata["breadcrumb"], list), \
+            f"breadcrumb must be list[str], got {type(c.metadata['breadcrumb'])}"
+        assert all(isinstance(s, str) for s in c.metadata["breadcrumb"]), \
+            "All breadcrumb elements must be str"
+
+        assert isinstance(c.metadata["tags"], list), \
+            f"tags must be list[str], got {type(c.metadata['tags'])}"
+        assert all(isinstance(s, str) for s in c.metadata["tags"]), \
+            "All tags elements must be str"
+
+        assert isinstance(c.metadata["chunk_index"], int), \
+            f"chunk_index must be int, got {type(c.metadata['chunk_index'])}"
+
+        # crawled_at must be a valid ISO 8601 string
+        datetime.fromisoformat(c.metadata["crawled_at"])
 
 
 # ---------------------------------------------------------------------------
@@ -273,10 +292,10 @@ async def test_chroma_upsert_idempotency(config_file):
                 metadata={
                     "url": "https://example.com/pods",
                     "chunk_index": 0,
-                    "breadcrumb": "Concepts > Workloads",
+                    "breadcrumb": ["Concepts", "Workloads"],   # list[str]
                     "domain": "test-domain",
                     "crawled_at": "2026-02-24T00:00:00+00:00",
-                    "tags": "concepts,workloads",
+                    "tags": ["concepts", "workloads"],         # list[str]
                     "heading": "Pods",
                 },
             ),
@@ -289,10 +308,10 @@ async def test_chroma_upsert_idempotency(config_file):
                 metadata={
                     "url": "https://example.com/deployments",
                     "chunk_index": 0,
-                    "breadcrumb": "Concepts > Workloads",
+                    "breadcrumb": ["Concepts", "Workloads"],   # list[str]
                     "domain": "test-domain",
                     "crawled_at": "2026-02-24T00:00:00+00:00",
-                    "tags": "concepts,workloads",
+                    "tags": ["concepts", "workloads"],         # list[str]
                     "heading": "Deployments",
                 },
             ),

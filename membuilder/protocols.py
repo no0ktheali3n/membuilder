@@ -34,14 +34,18 @@ class Chunk:
     for compatibility with both ChromaDB and Milvus.
 
     Required keys in metadata (all adapters must populate these):
-        url:         str  — source page URL
-        breadcrumb:  str  — " > " joined path, e.g. "Concepts > Workloads > Pods"
-        chunk_index: int  — position of chunk within its source page
-        domain:      str  — e.g. "kubernetes"
-        crawled_at:  str  — ISO 8601 timestamp from the RawPage
-        tags:        str  — comma-joined lowercased breadcrumb segments,
-                            e.g. "concepts,workloads,pods"
-        heading:     str  — nearest parent heading for this chunk
+        url:         str       — source page URL
+        breadcrumb:  list[str] — e.g. ["Concepts", "Workloads", "Pods"]
+        chunk_index: int       — position of chunk within its source page
+        domain:      str       — e.g. "kubernetes"
+        crawled_at:  str       — ISO 8601 timestamp from the RawPage
+        tags:        list[str] — lowercased breadcrumb segments,
+                                 e.g. ["concepts", "workloads", "pods"]
+        heading:     str       — nearest parent heading for this chunk
+
+    Note: vector store adapters are responsible for serializing list values
+    (breadcrumb, tags) to strings before writing to scalar-only backends
+    (ChromaDB, Milvus). The Chunk itself always carries the typed values.
     """
     id: str
     text: str

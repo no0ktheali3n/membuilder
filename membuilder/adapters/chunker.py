@@ -75,13 +75,11 @@ class MarkdownChunker:
 
         result = []
         for c in internal_chunks:
-            # breadcrumb is a list[str] on the internal Chunk
-            breadcrumb_list: list[str] = c.breadcrumb
-            breadcrumb_str = " > ".join(breadcrumb_list)
-
-            # tags = lowercased, hyphenated breadcrumb segments
-            tags_list = [s.lower().replace(" ", "-") for s in breadcrumb_list]
-            tags_str = ",".join(tags_list)
+            # breadcrumb is a list[str] on the internal Chunk — keep it typed.
+            # Vector store adapters are responsible for serializing to strings
+            # before writing to scalar-only backends (ChromaDB, Milvus).
+            breadcrumb: list[str] = c.breadcrumb
+            tags: list[str] = [s.lower().replace(" ", "-") for s in breadcrumb]
 
             result.append(
                 ProtocolChunk(
@@ -89,11 +87,11 @@ class MarkdownChunker:
                     text=c.text,
                     metadata={
                         "url": page.url,
-                        "breadcrumb": breadcrumb_str,
+                        "breadcrumb": breadcrumb,   # list[str]
                         "chunk_index": c.chunk_index,
                         "domain": self.domain,
                         "crawled_at": page.crawled_at,
-                        "tags": tags_str,
+                        "tags": tags,               # list[str]
                         "heading": c.heading,
                     },
                 )

@@ -29,6 +29,23 @@ from membuilder.protocols import (
 )
 
 
+def _serialize_metadata(metadata: dict) -> dict:
+    """
+    Flatten list values to comma-joined strings for Milvus compatibility.
+
+    Milvus dynamic fields don't support list types with the simple schema API.
+    breadcrumb and tags are list[str] at the protocol level; this function
+    converts them to strings only at write time. The Chunk itself is unchanged.
+    """
+    out = {}
+    for k, v in metadata.items():
+        if isinstance(v, list):
+            out[k] = ",".join(str(s) for s in v)
+        else:
+            out[k] = v
+    return out
+
+
 class MilvusVectorStore:
     """
     VectorStore adapter backed by Milvus / Milvus Lite.
@@ -78,7 +95,7 @@ class MilvusVectorStore:
             {
                 "id": c.chunk.id,
                 "vector": c.embedding,
-                **c.chunk.metadata,
+                **_serialize_metadata(c.chunk.metadata),  # flatten lists → strings
                 "text": c.chunk.text,
             }
             for c in chunks
