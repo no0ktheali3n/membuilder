@@ -11,6 +11,8 @@ v0.3.1 additions:
   - Verify ChromaDB upsert is idempotent (count stable on second upsert)
 """
 
+import sys
+
 import pytest
 from pathlib import Path
 
@@ -18,6 +20,12 @@ from membuilder.config import MembuilderConfig
 from membuilder.protocols import (
     Crawler, Chunker, Embedder, VectorStore,
     RawPage, Chunk, EmbeddedChunk,
+)
+
+
+milvus_skip = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="milvus-lite is not supported on Windows",
 )
 
 
@@ -104,6 +112,7 @@ def test_build_vector_store_chroma_satisfies_protocol(config_file):
     assert isinstance(store, VectorStore)
 
 
+@milvus_skip
 def test_build_vector_store_milvus_satisfies_protocol(tmp_path):
     pytest.importorskip("pymilvus", reason="pymilvus not installed")
     milvus_path = str(tmp_path / "milvus").replace("\\", "/")

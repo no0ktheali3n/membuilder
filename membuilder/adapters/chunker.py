@@ -20,7 +20,8 @@ import hashlib
 from membuilder.protocols import RawPage
 from membuilder.protocols import Chunk as ProtocolChunk
 from membuilder.crawler.models import CrawledPage
-from membuilder.parser.chunker import chunk_page
+from membuilder.parser.chunker import chunk_page, _strip_url_prefix
+from membuilder.parser.metadata import url_to_breadcrumb
 
 
 def _make_id(url: str, chunk_index: int) -> str:
@@ -72,6 +73,29 @@ class MarkdownChunker:
         )
 
         internal_chunks = chunk_page(crawled)
+
+        if not internal_chunks and page.content.strip():
+            # chunk_page() returned [] — content is below MIN_CONTENT_LENGTH.
+            # Create a single fallback chunk so short pages are never silently
+            # dropped (important for test fixtures and terse documentation pages).
+            strip_prefix = _strip_url_prefix(page.url)
+            breadcrumb: list[str] = url_to_breadcrumb(page.url, strip_prefix)
+            tags: list[str] = [s.lower().replace(" ", "-") for s in breadcrumb]
+            return [
+                ProtocolChunk(
+                    id=_make_id(page.url, 0),
+                    text=page.content.strip(),
+                    metadata={
+                        "url": page.url,
+                        "breadcrumb": breadcrumb,
+                        "chunk_index": 0,
+                        "domain": self.domain,
+                        "crawled_at": page.crawled_at,
+                        "tags": tags,
+                        "heading": page.metadata.get("title", page.url),
+                    },
+                )
+            ]
 
         result = []
         for c in internal_chunks:

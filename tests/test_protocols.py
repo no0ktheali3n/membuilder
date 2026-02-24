@@ -6,9 +6,17 @@ These tests prove that the adapter boundary is correctly shaped: callers can
 depend on the protocol without caring which concrete implementation is behind it.
 """
 
+import sys
+
 import pytest
 
 from membuilder.protocols import Crawler, Chunker, Embedder, VectorStore
+
+
+milvus_skip = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="milvus-lite is not supported on Windows",
+)
 
 
 def test_crawl4ai_crawler_satisfies_protocol():
@@ -46,6 +54,7 @@ def test_chroma_vector_store_satisfies_protocol(tmp_path):
     )
 
 
+@milvus_skip
 def test_milvus_vector_store_satisfies_protocol(tmp_path):
     pymilvus = pytest.importorskip("pymilvus", reason="pymilvus not installed")
     from membuilder.adapters.vector_store.milvus import MilvusVectorStore

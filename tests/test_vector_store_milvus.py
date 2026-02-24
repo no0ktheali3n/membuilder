@@ -6,6 +6,8 @@ Uses 3-dimensional embeddings for speed. The test is skipped automatically
 if pymilvus is not installed.
 """
 
+import sys
+
 import pytest
 import asyncio
 
@@ -14,9 +16,16 @@ from membuilder.protocols import EmbeddedChunk, Chunk
 
 pytestmark = pytest.mark.asyncio
 
+milvus_skip = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="milvus-lite is not supported on Windows",
+)
+
 
 @pytest.fixture
 def milvus_store(tmp_path):
+    if sys.platform == "win32":
+        pytest.skip("milvus-lite is not supported on Windows")
     pymilvus = pytest.importorskip("pymilvus", reason="pymilvus not installed")
     from membuilder.adapters.vector_store.milvus import MilvusVectorStore
     return MilvusVectorStore(
