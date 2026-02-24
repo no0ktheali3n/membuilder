@@ -6,6 +6,33 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.3.1] - 2026-02-24
+
+### Added
+- `membuilder/protocols.py` — four runtime-checkable protocols: `Crawler`, `Chunker`, `Embedder`, `VectorStore` with shared data types (`RawPage`, `Chunk`, `EmbeddedChunk`, `SearchResult`, `UpsertResult`)
+- `membuilder/adapters/` — adapter layer wrapping all concrete dependencies behind protocol interfaces
+- `membuilder/adapters/vector_store/milvus.py` — `MilvusVectorStore` adapter supporting Milvus Lite (local) and Milvus server (production) via URI
+- `membuilder/config.py` — `MembuilderConfig` loads `membuilder.yaml` and instantiates correct adapters via factory methods
+- `membuilder.yaml` — top-level config file driving the full pipeline (crawler, chunker, embedder, vector store, vault)
+- `scripts/validate_idempotency.py` — real-data validation script confirming deterministic chunk IDs and idempotent upsert
+- `scripts/validate_store_parity.py` — cross-backend ranking comparison script (defer on Windows; requires Linux/CI for Milvus Lite)
+
+### Changed
+- `MarkdownChunker` now accepts `domain` at construction time and emits all required metadata keys: `url`, `breadcrumb`, `chunk_index`, `domain`, `crawled_at`, `tags`, `heading`
+- Chunk IDs are now deterministic: `sha256(url + "::" + chunk_index)[:16]` — previously random UUIDs
+- `RawPage` dataclass extended with `crawled_at: str` (ISO 8601)
+- `pyproject.toml` updated with `pymilvus` dependency and `setuptools` package discovery scoped to `membuilder*`
+
+### Fixed
+- `MarkdownChunker` now returns a single-chunk fallback for pages below LlamaIndex's minimum content threshold — previously returned empty list, silently dropping short pages from the index
+
+### Notes
+- Milvus Lite tests skipped on Windows (`milvus-lite` is Linux/macOS only). Full Milvus test coverage runs in CI on Linux.
+- Idempotency validated against 100 pages of Kubernetes corpus (1,776 chunks). Second run confirmed zero new inserts via stable collection count.
+- Full corpus re-embed recommended after this release to populate enriched metadata fields in existing collections.
+
+---
+
 ## [0.3.0] - 2026-02-23
 
 ### Added

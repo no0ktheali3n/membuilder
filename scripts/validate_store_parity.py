@@ -120,7 +120,7 @@ def main():
     config = MembuilderConfig.from_file(args.config)
 
     pages = []
-    with open(args.input) as f:
+    with open(args.input, encoding="utf-8") as f:
         for i, line in enumerate(f):
             if i >= args.limit:
                 break

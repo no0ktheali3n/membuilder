@@ -54,6 +54,8 @@ URL(s)
   ↓
 [indexer v1]    LiteLLM embeddings → ChromaDB (raw chunks)              ← ✅ v0.3.0
   ↓
+[protocols]     Adapter layer — all backends behind swappable interfaces ← ✅ v0.3.1
+  ↓
 [query v1]      LlamaIndex semantic search                              ← 🔄 v0.4.0
   ↓
 [synthesizer]   Concept extraction → atomic notes → wiki-links → MOCs  ← ⏳ v0.5.0
@@ -76,6 +78,8 @@ membuilder/
 ├── crawler/          ✅ v0.1.0  — crawl4ai BFS, checkpointing, models
 ├── parser/           ✅ v0.2.0  — chunker, metadata, models (Chunk implements Embeddable)
 ├── index/            ✅ v0.3.0  — protocol.py, embedder.py, store.py
+├── protocols.py      ✅ v0.3.1  — Crawler, Chunker, Embedder, VectorStore protocols + shared types
+├── adapters/         ✅ v0.3.1  — adapter layer; vector_store/milvus.py
 ├── query/            🔄 v0.4.0  — engine.py, semantic.py | v0.7.0 graph.py
 ├── synthesizer/      ⏳ v0.5.0  — concept.py, atomic.py, linker.py, moc.py, frontmatter.py, models.py
 ├── vault/            ⏳ v0.6.0  — writer.py, claude_md.py, index.py, validator.py, templates/
@@ -128,7 +132,7 @@ crawled_at: 2026-02-23
 | Crawler | crawl4ai | Async, JS rendering, markdown output |
 | Parser | LlamaIndex MarkdownNodeParser | Heading-aware chunking |
 | Embeddings | OpenAI / Ollama via LiteLLM | Model-agnostic router |
-| Vector Store | ChromaDB | Persistent, local |
+| Vector Store | ChromaDB / Milvus via adapter | Swap via `membuilder.yaml` |
 | Query | LlamaIndex + LiteLLM | Semantic search |
 | Synthesizer | spaCy + LLM-assisted | Heuristic-first, LLM for ambiguity |
 | API | FastAPI | Async |
@@ -146,6 +150,7 @@ crawled_at: 2026-02-23
 | v0.1.0 | Crawler | BFS crawl, checkpointing, validation tooling | ✅ Done |
 | v0.2.0 | Parser | Heading-aware chunking, metadata, validation tooling | ✅ Done |
 | v0.3.0 | Indexer v1 | Embeddable protocol, LiteLLM embeddings, ChromaDB, index validation | ✅ Done |
+| v0.3.1 | Protocol layer | Runtime-checkable protocols, adapter pattern, Milvus support, deterministic chunk IDs, enriched metadata, `membuilder.yaml` config | ✅ Done |
 | v0.4.0 | Query v1 | LlamaIndex semantic search, FastAPI stub, query CLI | 🔄 Next |
 | v0.5.0 | Synthesizer | Concept extraction, atomic notes, wiki-link resolution, MOC generation | ⏳ |
 | v0.6.0 | Vault Writer | Obsidian vault output, CLAUDE.md, INDEX.md, vault validator | ⏳ |
@@ -159,21 +164,15 @@ crawled_at: 2026-02-23
 
 > Update this section at the start/end of each session.
 
-**Current version:** v0.3.0  
+**Current version:** v0.3.1  
 **Active sprint:** v0.4.0 — Query v1  
 **Blocked on:** Nothing  
-**Last updated:** 2026-02-23
+**Last updated:** 2026-02-24
 
 ### Completed This Session
-- Reviewed deepwiki-open (AsyncFuncAI) — confirmed not overlapping with membuilder's scope
-- Established AdalFlow vs ChromaDB+LlamaIndex decision (ChromaDB wins for our use case)
-- Ingested Heinrich's vault philosophy article + OpenClaw/Obsidian video transcript
-- Expanded project vision: membuilder is a domain vault factory, not just a RAG index
-- Revised full architecture to include synthesizer + vault writer layers
-- Created PROJECT.md as central source of truth
-- Built and validated v0.3.0 indexer: Embeddable protocol, LiteLLM embedder, ChromaDB store
-- Confirmed retrieval quality via inspect_index.py spot-check (0.77–0.84 scores, all queries semantically correct)
-- Embedded full Kubernetes docs corpus: 9,783 chunks, 100% coverage, persistent ChromaDB collection
+- Shipped v0.3.1: protocol layer, adapter pattern, Milvus support (Lite + server), deterministic chunk IDs (`sha256(url + "::" + chunk_index)[:16]`), enriched metadata fields, `membuilder.yaml` config system
+- Validated idempotency against 100 Kubernetes corpus pages (1,776 chunks) — zero new inserts on second run
+- Added `validate_idempotency.py` and `validate_store_parity.py` scripts
 
 ### Next Session Start
 - Begin v0.4.0: `membuilder/query/engine.py` — LlamaIndex query engine wired to ChromaDB
@@ -228,12 +227,34 @@ crawled_at: 2026-02-23
 **Implementation:** `MEMBUILDER_EMBEDDING_MODEL` (default: `text-embedding-3-small`), `MEMBUILDER_SYNTHESIS_MODEL` (default: `claude-sonnet-4-6`)  
 **Status:** Accepted
 
+### ADR-008: Adapter pattern over direct dependency coupling
+**Date:** 2026-02-24  
+**Decision:** All concrete dependencies (vector stores, embedders, crawlers, chunkers) are wrapped behind runtime-checkable protocol interfaces defined in `membuilder/protocols.py`  
+**Rationale:** Direct coupling to ChromaDB or LlamaIndex throughout the codebase would make backend swaps expensive. The adapter pattern isolates change to a single file per backend. `MembuilderConfig` loads `membuilder.yaml` and returns the correct adapter via factory methods — callers never import ChromaDB or Milvus directly.  
+**Status:** Accepted
+
+### ADR-009: Deterministic chunk IDs
+**Date:** 2026-02-24  
+**Decision:** Chunk IDs are `sha256(url + "::" + chunk_index)[:16]`, replacing the previous random UUIDs  
+**Rationale:** Random UUIDs make idempotent upsert unreliable across re-runs — the same logical chunk gets a new ID on every parse, causing index bloat. Deterministic IDs based on content address (url + position) mean re-indexing the same corpus produces zero net-new records. This is a hard requirement for v0.6.0 Vault Writer back-references and v0.7.0 graph traversal.  
+**Note:** Full corpus re-embed required after this release to backfill deterministic IDs into existing collections. Do this before beginning v0.6.0 Vault Writer work.  
+**Status:** Accepted
+
 ---
 
 ## Key Design Constraints
 
 **`Embeddable` protocol (implemented v0.3.0):**  
 The ChromaDB layer depends on `protocol.Embeddable` — not on `Chunk` directly. Both `Chunk` (parser output) and `AtomicNote` (synthesizer output, v0.7.0) implement `id: str`, `text: str`, `metadata: dict`. This is the forward-compatibility contract that prevents an indexer rewrite in v0.7.0.
+
+**Protocol + adapter layer (implemented v0.3.1):**  
+All concrete dependencies are behind swappable interfaces (`protocols.py`). `MembuilderConfig` loads `membuilder.yaml` and returns correct adapters via factory methods. No caller imports ChromaDB or Milvus directly. Adding a new backend = one new adapter file.
+
+**Deterministic chunk IDs (implemented v0.3.1):**  
+`sha256(url + "::" + chunk_index)[:16]`. Required for idempotent upsert, vault back-references (v0.6.0), and graph traversal (v0.7.0). Full corpus re-embed required before v0.6.0 work begins to ensure all existing collections carry deterministic IDs.
+
+**Milvus Lite platform constraint:**  
+`milvus-lite` is Linux/macOS only. Windows users must use full Milvus server via URI, or ChromaDB. Parity validation (`validate_store_parity.py`) is deferred to CI on Linux.
 
 **Context assembly contract (design in v0.4.0):**  
 The query engine's context assembly — what gets passed to the LLM, in what order, with what framing — must be designed as an extensible contract in v0.4.0. v0.7.0 extends this (retrieved chunks + wiki-link expanded context) rather than rewriting it. Don't bake flat chunk retrieval assumptions into the synthesis prompt structure.
@@ -245,7 +266,7 @@ A note is only useful if it can be linked from elsewhere and still make sense in
 Agents load `INDEX.md` first (all notes, one line each), then navigate to the relevant MOC, then follow wiki-links to build understanding. This is the read pattern we design for — not just "find the most similar chunk."
 
 **No vendor lock-in:**  
-Vault output is plain markdown files with YAML frontmatter. No database required to read it. Any LLM with file access can consume it. ChromaDB is an acceleration layer, not the source of truth.
+Vault output is plain markdown files with YAML frontmatter. No database required to read it. Any LLM with file access can consume it. ChromaDB/Milvus are acceleration layers, not the source of truth.
 
 ---
 
@@ -279,11 +300,27 @@ DB write     : 8.3s
 Spot-check   : 5/5 queries semantically correct, scores 0.77–0.84
 ```
 
+**Idempotency validation (v0.3.1):**
+```
+Sample       : 100 pages / 1,776 chunks
+Second run   : 0 new inserts (stable collection count confirmed)
+Chunk IDs    : deterministic sha256 — consistent across re-runs
+```
+
 ---
 
 ## Session Notes
 
 > Running log — prepend new entries, keep last 5 sessions.
+
+### 2026-02-24
+- Shipped v0.3.1: protocol layer (`protocols.py`), adapter pattern (`adapters/`), Milvus support (Lite + server)
+- Chunk IDs migrated to deterministic `sha256(url + "::" + chunk_index)[:16]` — idempotency validated
+- `MarkdownChunker` enriched with full metadata: `url`, `breadcrumb`, `chunk_index`, `domain`, `crawled_at`, `tags`, `heading`
+- Added single-chunk fallback for pages below LlamaIndex minimum content threshold (previously silently dropped)
+- `membuilder.yaml` config system live — full pipeline driven by YAML, no code changes needed to swap backends
+- Added ADR-008 (adapter pattern) and ADR-009 (deterministic chunk IDs)
+- **Pending:** full corpus re-embed to backfill deterministic IDs before v0.6.0 work
 
 ### 2026-02-23
 - Full project sync after scope expansion
