@@ -113,7 +113,7 @@ membuilder/
 | Crawler | crawl4ai | Async, JS rendering, markdown output |
 | Parser | LlamaIndex MarkdownNodeParser | Heading-aware chunking |
 | Embeddings | OpenAI / Ollama | Routed via LiteLLM |
-| Vector Store | ChromaDB | Persistent, local |
+| Vector Store | ChromaDB or Milvus | Swap via `membuilder.yaml` |
 | Query | LlamaIndex + LiteLLM | Model-agnostic query engine |
 | API | FastAPI | Async, production-ready |
 | UI (proto) | Streamlit | Fast iteration |
@@ -121,11 +121,55 @@ membuilder/
 
 ---
 
+## Configuration (`membuilder.yaml`)
+
+All pipeline components are configured via `membuilder.yaml` in the project root. Edit this file to swap providers — no code changes needed.
+
+```yaml
+crawler: crawl4ai
+
+chunker: markdown
+
+embedder:
+  provider: ollama       # swap to: openai, cohere, anthropic, etc.
+  model: qwen3:4b        # model name as LiteLLM expects it
+
+vector_store:
+  backend: chroma        # swap to: milvus
+  path: ./data/chroma
+  # uri:                 # milvus server only — e.g. http://localhost:19530
+
+vault:
+  profile: knowledge     # knowledge | work | research | creative (v0.6.0)
+  domain: kubernetes
+  output: ./vaults/kubernetes
+```
+
+### Supported vector store backends
+
+| Backend | Config | Notes |
+|---------|--------|-------|
+| `chroma` | `backend: chroma` + `path:` | Default. Persistent local ChromaDB. |
+| `milvus` | `backend: milvus` + `path:` | Milvus Lite (local, no server). Use a `.db` file path. |
+| `milvus` | `backend: milvus` + `uri: http://...` | Full Milvus server. `uri` takes precedence over `path`. |
+
+### Supported embedder providers
+
+Any LiteLLM-compatible provider works. Set `provider` and `model` to match:
+
+| Provider | Config | Notes |
+|----------|--------|-------|
+| Ollama (local) | `provider: ollama`, `model: qwen3:4b` | Set `OLLAMA_API_BASE` in `.env` |
+| OpenAI | `provider: openai`, `model: text-embedding-3-small` | Set `OPENAI_API_KEY` in `.env` |
+| Cohere | `provider: cohere`, `model: embed-english-v3.0` | Set `COHERE_API_KEY` in `.env` |
+
+---
+
 ## Setup
 
 ```bash
 # Install dependencies
-uv add crawl4ai python-dotenv pydantic rich llama-index-core litellm chromadb
+uv sync
 
 # First-time browser setup (downloads Chromium for crawl4ai)
 uv run crawl4ai-setup
@@ -365,6 +409,9 @@ Edit the URL inside the script to target a specific page.
 | Embedding pipeline (LiteLLM) | ✅ Complete |
 | ChromaDB store | ✅ Complete |
 | Index validation tooling | ✅ Complete |
+| Protocol layer (v0.3.1) | ✅ Complete |
+| Milvus vector store adapter | ✅ Complete |
+| `membuilder.yaml` config system | ✅ Complete |
 | Query engine | 🔄 Next |
 | FastAPI backend | ⏳ Planned |
 | Synthesizer (vault) | ⏳ Planned |

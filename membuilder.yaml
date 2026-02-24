@@ -1,0 +1,23 @@
+# membuilder.yaml — pipeline configuration
+#
+# Edit this file to swap providers. No code changes needed.
+# All components are wired by MembuilderConfig.from_file().
+
+crawler: crawl4ai
+
+chunker: markdown
+
+embedder:
+  provider: ollama       # swap to: openai, cohere, anthropic, etc.
+  model: qwen3:4b        # model name as LiteLLM expects it
+
+vector_store:
+  backend: chroma        # swap to: milvus
+  path: ./data/chroma
+  # uri:                 # milvus server only — e.g. http://localhost:19530
+  #                      # for milvus lite, omit uri and use path above
+
+vault:
+  profile: knowledge     # knowledge | work | research | creative (v0.6.0)
+  domain: kubernetes
+  output: ./vaults/kubernetes

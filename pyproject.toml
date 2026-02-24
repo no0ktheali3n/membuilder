@@ -1,6 +1,6 @@
 [project]
 name = "membuilder"
-version = "0.3.0"
+version = "0.3.1"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -10,6 +10,17 @@ dependencies = [
     "litellm>=1.65.0",
     "llama-index-core>=0.14.15",
     "pydantic>=2.12.5",
+    "pymilvus>=2.4.0",
     "python-dotenv>=1.2.1",
+    "pyyaml>=6.0",
     "rich>=14.3.3",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
